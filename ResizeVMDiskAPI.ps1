@@ -36,6 +36,8 @@
 .EXAMPLE
     .\ResizeVMDiskAPI.ps1 -ClusterIP "1.1.1.1" -PE_Username "secret_user_name" -PE_Password "super_mega_password" -DeviceBus "scsi" -DeviceIndex 1 -VMNames @("VM1", "VM2") -GBToAdd 10 -disableparamprompt
     This will execute the script to resize the disk on VM1 and VM2 by 10GB for the SCSI disk at index 1. This will disable the prompt for user input when outputting param details.
+.NOTES 
+    Script comes without warranty. Use at your own risk and test first. The Whatif switch is there for a reason
 #>
 
 #region Params
