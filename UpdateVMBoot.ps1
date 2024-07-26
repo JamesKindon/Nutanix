@@ -847,6 +847,7 @@ foreach ($VMName in $VMNames) {
     $VM = $VirtualMachines | Where-Object { $_.status.name -eq $VMName }
     if ($VM) {
         Write-Log -Message "Processing VM $($VMToProcessCurrentIteration) of $($VMToProcessCount): $($VMName)" -Level Info
+        $VMToProcessCurrentIteration ++
         Write-Log -Message "[VM: $($VMName)] Found VM $($VM.status.name) in PC" -Level Info
         #------------------------------------------------------------
         # Check the current machine BIOS settings
