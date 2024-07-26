@@ -477,7 +477,12 @@ function InvokePrismAPI {
         }
         catch {
             $saved_error = $_.Exception.Message
-            Write-Log -Message "[ERROR] $saved_error" -Level Error
+            if ($saved_error -like "*405*") {
+                $resp = "Method Not Allowed"
+            } else {
+                Write-Log -Message "[ERROR] $saved_error" -Level Error
+            }
+            
         }
         finally {
             #add any last words here; this gets processed no matter what
@@ -722,7 +727,9 @@ $Payload = (ConvertTo-Json $PayloadContent)
 try {
     Write-Log -Message "[Cluster Retrieval] Attempting to retrieve Clusters from $($pc_source)" -Level Info
     $Clusters = InvokePrismAPI -Method $Method -Url $RequestUri -Payload $Payload -Credential $PrismCentralCredentials -ErrorAction Stop
-    Write-Log -Message "[Cluster Retrieval] Successfully retrieved Clusters from $($pc_source)" -Level Info
+    if ($Clusters) {
+        Write-Log -Message "[Cluster Retrieval] Successfully retrieved Clusters from $($pc_source)" -Level Info
+    }
 }
 catch {
     Write-Log -Message "[Cluster Retrieval] Failed to retrieve Clusters from $($pc_source)" -Level Warn
@@ -865,6 +872,16 @@ foreach ($VMName in $VMNames) {
             Write-Log -Message "[VM: $($VMName)] Has a vTPM enabled" -Level Info
         } else {
             Write-Log -Message "[VM: $($VMName)] Does not have a vTPM enabled" -Level Info
+        }
+
+        #------------------------------------------------------------
+        # Check to see if the VM has an IDE CDROM
+        #------------------------------------------------------------
+        if ($VM.spec.resources.disk_list.device_properties.device_type -eq "CDROM" -and $VM.spec.resources.disk_list.device_properties.disk_address.adapter_type -eq "IDE") {
+            Write-Log -Message "[VM: $($VMName)] Has an IDE CDROM attached and cannot be processed. Please remove the CDROM" -Level Warn
+            $VM_Has_IDE_CDROM = $true
+            $VMSNotAltered ++
+            Continue
         }
 
         #------------------------------------------------------------
@@ -1024,7 +1041,7 @@ foreach ($VMName in $VMNames) {
                 $Payload = (ConvertTo-Json $Initial_VM_Payload -depth 9)
                 #----------------------------------------------------------------------------------------------------------------------------
                 $VM_Update = InvokePrismAPI -Method $Method -Url $RequestUri -Payload $Payload -Credential $PrismCentralCredentials
-
+                                
                 #----------------------------------------------------------------------------------------------------------------------------
                 # Set API call detail - Get the task status
                 #----------------------------------------------------------------------------------------------------------------------------
@@ -1396,7 +1413,7 @@ Write-Log -Message "[Summary] Attempted to process $($VMToProcessCount) VMs" -Le
 Write-Log -Message "[Summary] Successfully processed $($VMSAlteredCountBoot) VMs for Boot type changes" -Level Info
 Write-Log -Message "[Summary] Successfully processed $($VMSAlteredCountvTPM) VMs for vTPM changes" -Level Info
 if ($VMsFailedCount -gt 0) {
-    Write-Log -Message "[Summary] Failed to process $($VMsFailedCount) VMs" -Level Info
+    Write-Log -Message "[Summary] Failed to process $($VMsFailedCount) VMs" -Level Warn
 }
 Write-Log -Message "[Summary] $($VMSNotAltered) VMs were not altered " -Level Info
 #endregion Summary
