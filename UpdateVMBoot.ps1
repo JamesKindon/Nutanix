@@ -389,46 +389,6 @@ function Get-CustomCredentials {
     }
 } #this function is used to retrieve saved credentials for the current user
 
-function Set-PoshTls {
-    <#
-    .SYNOPSIS
-    Makes sure we use the proper Tls version (1.2 only required for connection to Prism).
-
-    .DESCRIPTION
-    Makes sure we use the proper Tls version (1.2 only required for connection to Prism).
-
-    .NOTES
-    Author: Stephane Bourdeaud (sbourdeaud@nutanix.com)
-
-    .EXAMPLE
-    .\Set-PoshTls
-    Makes sure we use the proper Tls version (1.2 only required for connection to Prism).
-
-    .LINK
-    https://github.com/sbourdeaud
-    #>
-    [CmdletBinding(DefaultParameterSetName = 'None')] #make this function advanced
-
-    param 
-    (
-        
-    )
-
-    begin {
-    }
-
-    process {
-        Write-Log -Message "[SSL] Adding Tls12 support" -Level Info
-        [Net.ServicePointManager]::SecurityProtocol = `
-        ([Net.ServicePointManager]::SecurityProtocol -bor `
-                [Net.SecurityProtocolType]::Tls12)
-    }
-
-    end {
-
-    }
-} #this function is used to make sure we use the proper Tls version (1.2 only required for connection to Prism)
-
 function InvokePrismAPI {
     param (
         [parameter(mandatory = $true)]
@@ -638,49 +598,8 @@ Write-Log -Message "---------------------------------------------" -Level Plan
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Log -Message "[PoSH Version] Detected PoSH version $($PSVersionTable.PSVersion.Major). This script requires PoSH 7 or higher" -Level Warn
     StopIteration
-    Exit 1
- }
-
-#region SSL Handling
-#------------------------------------------------------------
-# Handle Invalid Certs
-#------------------------------------------------------------
-if ($PSEdition -eq 'Desktop') {
-    Write-Log -Message "[SSL] Ignoring invalid certificates" -Level Info
-    if (-not ([System.Management.Automation.PSTypeName]'ServerCertificateValidationCallback').Type) {
-        $certCallback = @"
-using System;
-using System.Net;
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
-public class ServerCertificateValidationCallback
-{
-public static void Ignore()
-{
-    if(ServicePointManager.ServerCertificateValidationCallback ==null)
-    {
-        ServicePointManager.ServerCertificateValidationCallback += 
-            delegate
-            (
-                Object obj, 
-                X509Certificate certificate, 
-                X509Chain chain, 
-                SslPolicyErrors errors
-            )
-            {
-                return true;
-            };
-    }
+    Exit 0
 }
-}
-"@
-        Add-Type $certCallback
-    }
-    [ServerCertificateValidationCallback]::Ignore()
-}
-
-Set-PoshTls
-#endregion SSL Handling
 
 #region Authentication
 #------------------------------------------------------------
