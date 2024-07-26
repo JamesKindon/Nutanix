@@ -28,16 +28,16 @@
 .PARAMETER Whatif
     Optional. Will process the script in planning mode with no changes.
 .EXAMPLE
-    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1,"VM2,"VM3" -SecureBoot -AddVTPM -Whatif
+    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1","VM2,"VM3" -EnableSecureBoot -AddVTPM -Whatif
     Will process VM1, VM2, and VM3 on the Prism Central instance 1.1.1.1. It will enable Secure Boot and add a vTPM to the VMs. It will not make any changes and will only report on what it would do. You will be prompted for Credentials
 .EXAMPLE
-    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1,"VM2,"VM3" -AddVTPM -Whatif
+    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1","VM2,"VM3" -AddVTPM -Whatif
     will process VM1, VM2, and VM3 on the Prism Central instance 1.1.1.1 and add a vTPM to the VMs. It will not make any changes and will only report on what it would do. You will be prompted for Credentials
 .EXAMPLE
-    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1,"VM2,"VM3" -BIOS -RemoveVTPM -Whatif
+    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1","VM2,"VM3" -BIOS -RemoveVTPM -Whatif
     Will process VM1, VM2, and VM3 on the Prism Central instance 1.1.1.1. It will revert the VMs to BIOS and remove the vTPM from the VMs. It will not make any changes and will only report on what it would do. You will be prompted for Credentials
 .EXAMPLE
-    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1,"VM2,"VM3" -SecureBoot -AddVTPM -UseCustomCredentialFile
+    & UpdateVMBoot.ps1 -pc_source "1.1.1.1" -VMNames "VM1","VM2,"VM3" -EnableSecureBoot -AddVTPM -UseCustomCredentialFile
     Will process VM1, VM2, and VM3 on the Prism Central instance 1.1.1.1. It will enable Secure Boot and add a vTPM to the VMs. You will be prompted for Credentials which will be stored for future use. You aren in execute mode.
 
 .NOTES
@@ -62,6 +62,7 @@
     - Process Each Machine but first, understand that machines current configuration and what can and what can't be done. For example:
         - You cannot add a vTPM to a machine that already has one, nor can you add one to a machine that uses BIOS boot. 
         - With the same logic, you cannot switch a machine from UEFI boot to BIOS boot without removing the vTPM first.
+        - You also cannot have an IDE CDROM drive attached a VM that is going to be converted to SecureBoot, so we remove that, and then force machine_type to q35.
     - Each time a VM is altered, or going to be altered, a backup of that VM is exported to JSON for reference under the logs folder.
 
 #>
@@ -634,8 +635,8 @@ Write-Log -Message "---------------------------------------------" -Level Plan
 #endregion script parameter reporting
 
 #check PoSH version
-if ($PSVersionTable.PSVersion.Major -lt 5) {
-    Write-Log -Message "[PoSH Version] Detected PoSH version $($PSVersionTable.PSVersion.Major). This script requires PoSH 5 or higher" -Level Warn
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Log -Message "[PoSH Version] Detected PoSH version $($PSVersionTable.PSVersion.Major). This script requires PoSH 7 or higher" -Level Warn
     StopIteration
     Exit 1
  }
@@ -851,6 +852,11 @@ foreach ($VMName in $VMNames) {
         # Check the current machine BIOS settings
         #------------------------------------------------------------
         $VM_Boot_Type = $VM.spec.resources.boot_config.boot_type
+        if ([string]::IsNullOrEmpty($VM_Boot_Type)) {
+            Write-Log -Message "[VM: $($VMName)] Unable to determine boot type from JSON. Not processing any further." -Level Warn
+            $VMSNotAltered ++
+            Continue 
+        }
         if ($VM_Boot_Type -eq "LEGACY") {
             Write-Log -Message "[VM: $($VMName)] Boot type is set to BIOS (LEGACY)" -Level Info
         } 
