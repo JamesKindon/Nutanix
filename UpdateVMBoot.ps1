@@ -111,9 +111,6 @@ Param(
 )
 #endregion
 
-#$pc_source = "10.68.68.94"
-#$VMNames = @("cont-jk-jump")
-
 #region Functions
 # ============================================================================
 # Functions
