@@ -477,11 +477,7 @@ function InvokePrismAPI {
         }
         catch {
             $saved_error = $_.Exception.Message
-            if ($saved_error -like "*405*") {
-                $resp = "Method Not Allowed"
-            } else {
-                Write-Log -Message "[ERROR] $saved_error" -Level Error
-            }
+            Write-Log -Message "[ERROR] $saved_error" -Level Error
             
         }
         finally {
@@ -837,6 +833,7 @@ $VMToProcessCount = ($VMNames | Measure-Object).Count
 $VMToProcessCurrentIteration = 1
 $VMSAlteredCountBoot = 0
 $VMSAlteredCountvTPM = 0
+$VMSAlteredCountCDROM = 0
 $VMsFailedCount = 0
 $VMSNotAltered = 0
 #endregion Counter Objects
@@ -878,10 +875,12 @@ foreach ($VMName in $VMNames) {
         # Check to see if the VM has an IDE CDROM
         #------------------------------------------------------------
         if ($VM.spec.resources.disk_list.device_properties.device_type -eq "CDROM" -and $VM.spec.resources.disk_list.device_properties.disk_address.adapter_type -eq "IDE") {
-            Write-Log -Message "[VM: $($VMName)] Has an IDE CDROM attached and cannot be processed. Please remove the CDROM" -Level Warn
+            if ($EnableSecureBoot) {
+                Write-Log -Message "[VM: $($VMName)] Has an IDE CDROM attached which will be removed" -Level Warn
+            } else {
+                Write-Log -Message "[VM: $($VMName)] Has an IDE CDROM attached" -Level Info
+            }
             $VM_Has_IDE_CDROM = $true
-            $VMSNotAltered ++
-            Continue
         }
 
         #------------------------------------------------------------
@@ -898,6 +897,10 @@ foreach ($VMName in $VMNames) {
                 $VMSAlteredCountBoot ++
             }
             if ($VM_Boot_Type -eq "LEGACY" -and $EnableSecureBoot) {
+                if ($VM_Has_IDE_CDROM = $true) {
+                    Write-Log -Message "[VM: $($VMName)] [Planning] Would remove IDE CDROM and set machine tye to q35" -Level Plan
+                    $VMSAlteredCountCDROM ++
+                }
                 Write-Log -Message "[VM: $($VMName)] [Planning] Would change Boot type to SECURE_BOOT" -Level Plan
                 $VMSAlteredCountBoot ++
             }
@@ -1026,6 +1029,50 @@ foreach ($VMName in $VMNames) {
 
             }
             if ($VM_Boot_Type -eq "LEGACY" -and $EnableSecureBoot) {
+                if ($VM_Has_IDE_CDROM -eq $true) {
+                    Write-Log -Message "[VM: $($VMName)] Removing IDE CDROM from VM and setting machine type to q35" -Level Info
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    # Set API call detail - Update the VM - Remove the CD ROM
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    $Method = "PUT"
+                    $RequestUri = "https://$($pc_source):9440/api/nutanix/v3/vms/$($VM.metadata.uuid)"
+
+                    $Initial_VM_Payload = $VM
+                    $Initial_VM_Payload.PSObject.Properties.Remove('status')
+
+                    $DiskList = @()
+                    foreach ($Disk in $Initial_VM_Payload.spec.resources.disk_list) {
+                        if ($Disk.device_properties.device_type -ne "CDROM" -and $Disk.device_properties.disk_address.adapter_type -ne "IDE") {
+                            $DiskList += $Disk
+                        }
+                    }
+
+                    $Initial_VM_Payload.spec.resources.disk_list = $DiskList
+                    $Initial_VM_Payload.spec.resources.machine_type = "q35"
+
+                    $Payload = (ConvertTo-Json $Initial_VM_Payload -depth 9)
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    $VM_Update = InvokePrismAPI -Method $Method -Url $RequestUri -Payload $Payload -Credential $PrismCentralCredentials
+
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    # Set API call detail - Get the task status
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    $Method = "GET"
+                    $RequestUri = "https://$($pc_source):9440/api/nutanix/v3/tasks/$($VM_Update.status.execution_context.task_uuid)"
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    $Task_Status = Get-PrismCentralTask -Method $Method -Url $RequestUri -Credential $PrismCentralCredentials
+
+                    # Update the counts
+                    if ($Task_Status -eq "succeeded") { $VMSAlteredCountCDROM ++ } else { $VMsFailedCount ++ ; Continue}
+
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    # Set API call detail - Get an updated view of the VM for the next stage
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    $Method = "GET"
+                    $RequestUri = "https://$($pc_source):9440/api/nutanix/v3/vms/$($VM.metadata.uuid)"
+                    #----------------------------------------------------------------------------------------------------------------------------
+                    $VM = InvokePrismAPI -Method $Method -Url $RequestUri -Credential $PrismCentralCredentials
+                }
                 Write-Log -Message "[VM: $($VMName)] Changing Boot type to SECURE_BOOT" -Level Info
                 #----------------------------------------------------------------------------------------------------------------------------
                 # Set API call detail - Update the VM
@@ -1041,7 +1088,7 @@ foreach ($VMName in $VMNames) {
                 $Payload = (ConvertTo-Json $Initial_VM_Payload -depth 9)
                 #----------------------------------------------------------------------------------------------------------------------------
                 $VM_Update = InvokePrismAPI -Method $Method -Url $RequestUri -Payload $Payload -Credential $PrismCentralCredentials
-                                
+
                 #----------------------------------------------------------------------------------------------------------------------------
                 # Set API call detail - Get the task status
                 #----------------------------------------------------------------------------------------------------------------------------
@@ -1412,6 +1459,7 @@ foreach ($VMName in $VMNames) {
 Write-Log -Message "[Summary] Attempted to process $($VMToProcessCount) VMs" -Level Info
 Write-Log -Message "[Summary] Successfully processed $($VMSAlteredCountBoot) VMs for Boot type changes" -Level Info
 Write-Log -Message "[Summary] Successfully processed $($VMSAlteredCountvTPM) VMs for vTPM changes" -Level Info
+Write-Log -Message "[Summary] Successfully processed $($VMSAlteredCountCDROM) VMs for CDROM changes" -Level Info
 if ($VMsFailedCount -gt 0) {
     Write-Log -Message "[Summary] Failed to process $($VMsFailedCount) VMs" -Level Warn
 }
